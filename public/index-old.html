@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#050505" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>RANDO • Video Chat v3</title>
+  <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg: #050505;
+      --bg2: #0c0c0f;
+      --panel: rgba(14, 14, 16, .82);
+      --panel-2: rgba(24, 24, 28, .72);
+      --text: #f8f7f1;
+      --muted: #a3a18f;
+      --line: rgba(255,255,255,.10);
+      --accent: #ffd400;
+      --accent-2: #ffe766;
+      --accent-soft: rgba(255, 212, 0, .18);
+      --danger: #ff5676;
+      --success: #4dff8d;
+      --shadow: 0 20px 80px rgba(0,0,0,.45);
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; width: 100%; height: 100%; overflow: hidden;
+      background:
+        radial-gradient(circle at top left, rgba(255,212,0,.12), transparent 28%),
+        radial-gradient(circle at 88% 10%, rgba(255,212,0,.08), transparent 20%),
+        linear-gradient(180deg, #050505, #0a0a0c 40%, #050505 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none; opacity: .55;
+      background-image:
+        linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,.55), transparent 82%);
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: -15%; pointer-events: none;
+      background:
+        radial-gradient(circle at 25% 22%, rgba(255,212,0,.12), transparent 26%),
+        radial-gradient(circle at 78% 75%, rgba(255,212,0,.06), transparent 28%);
+      filter: blur(30px);
+      animation: drift 13s ease-in-out infinite alternate;
+      opacity: .9;
+    }
+    @keyframes drift { to { transform: translate3d(3%, -2%, 0) scale(1.05); } }
+
+    .app { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: max(16px, env(safe-area-inset-top)) 20px 12px;
+      position: relative; z-index: 20;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 10px; font-weight: 900;
+      letter-spacing: .18em; font-size: 15px; color: #fff9d6;
+      text-shadow: 0 0 18px rgba(255,212,0,.12);
+    }
+    .brand-mark {
+      width: 12px; height: 12px; border-radius: 4px;
+      background: linear-gradient(135deg, var(--accent), #fff7ad 65%);
+      box-shadow: 0 0 24px rgba(255,212,0,.65);
+      transform: rotate(14deg);
+    }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px; max-width: 65vw; padding: 8px 12px;
+      border: 1px solid rgba(255,255,255,.08); border-radius: 999px;
+      background: rgba(10,10,12,.74); backdrop-filter: blur(16px);
+      font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      box-shadow: inset 0 0 0 1px rgba(255,212,0,.04);
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #777; flex: 0 0 auto; box-shadow: 0 0 0 4px rgba(255,255,255,.04); }
+    .status[data-state="ready"] .status-dot { background: var(--success); box-shadow: 0 0 18px rgba(77,255,141,.8); }
+    .status[data-state="waiting"] .status-dot { background: var(--accent); box-shadow: 0 0 18px rgba(255,212,0,.6); animation: pulse 1.2s infinite; }
+    .status[data-state="error"] .status-dot { background: var(--danger); }
+    @keyframes pulse { 50% { opacity: .38; transform: scale(.8); } }
+
+    main { position: relative; min-height: 0; padding: 0 18px; }
+    .stage {
+      position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate;
+      border: 1px solid rgba(255,255,255,.08); border-radius: 30px;
+      background:
+        radial-gradient(circle at 80% 10%, rgba(255,212,0,.08), transparent 26%),
+        linear-gradient(180deg, rgba(20,20,24,.98), rgba(8,8,10,.98));
+      box-shadow: 0 34px 100px rgba(0,0,0,.48), inset 0 0 0 1px rgba(255,212,0,.04);
+    }
+    .stage::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+      background: linear-gradient(180deg, transparent, rgba(255,212,0,.03) 75%, rgba(255,212,0,.06));
+    }
+    video { background: #0e0e12; }
+    #remoteVideo { width: 100%; height: 100%; object-fit: contain; display: block; background: #050507; position: relative; z-index: 1; }
+
+    .remote-empty {
+      position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; z-index: 2;
+    }
+    .remote-empty.hidden { display: none; }
+    .orb {
+      width: 96px; height: 96px; border-radius: 30px; margin: 0 auto 22px;
+      background: linear-gradient(135deg, rgba(255,212,0,.96), rgba(255,239,151,.82));
+      box-shadow: 0 18px 70px rgba(255,212,0,.25); position: relative; animation: float 3s ease-in-out infinite;
+    }
+    .orb::after { content: ""; position: absolute; inset: 18px; border-radius: 20px; border: 2px solid rgba(0,0,0,.18); }
+    @keyframes float { 50% { transform: translateY(-8px) rotate(3deg); } }
+    .remote-empty h1 { margin: 0 0 10px; font-size: clamp(22px,4vw,40px); letter-spacing: -.04em; }
+    .remote-empty p { margin: 0 auto; max-width: 540px; color: var(--muted); line-height: 1.55; font-size: 14px; }
+
+    .top-chips {
+      position: absolute; left: 18px; top: 18px; z-index: 4; display: flex; gap: 10px; flex-wrap: wrap;
+      max-width: calc(100% - 160px);
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px;
+      border-radius: 14px; border: 1px solid rgba(255,255,255,.1);
+      background: rgba(12,12,14,.74); backdrop-filter: blur(14px);
+      color: #f6f2d7; font-size: 11px; font-weight: 700; box-shadow: inset 0 0 0 1px rgba(255,212,0,.04);
+    }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px rgba(255,212,0,.8); }
+
+    .local-wrap {
+      position: absolute; top: 18px; right: 18px; width: min(31vw, 320px); aspect-ratio: 16 / 9;
+      border-radius: 24px; overflow: hidden; border: 1px solid rgba(255,255,255,.2);
+      box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,212,0,.08);
+      background: #050507; z-index: 5; transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
+      touch-action: none; cursor: grab;
+    }
+    .local-wrap.dragging { cursor: grabbing; transform: scale(1.02); box-shadow: 0 26px 70px rgba(0,0,0,.58), 0 0 0 1px rgba(255,212,0,.16); }
+    .local-wrap.off { opacity: .5; }
+    #localVideo { width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); background: #050507; }
+    .local-topbar {
+      position: absolute; top: 10px; left: 10px; right: 10px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none;
+    }
+    .drag-tag, .quality-badge, .local-label {
+      padding: 6px 9px; border-radius: 999px; background: rgba(0,0,0,.56); backdrop-filter: blur(8px);
+      font-size: 10px; border: 1px solid rgba(255,255,255,.08);
+    }
+    .drag-tag { color: #fff4b0; }
+    .local-label { position: absolute; left: 10px; bottom: 10px; font-size: 11px; }
+    .quality-badge { position: absolute; right: 10px; bottom: 10px; color: #fff0a7; }
+
+    .reaction-layer { position: absolute; inset: 0; z-index: 12; overflow: hidden; pointer-events: none; }
+    .reaction-pop { position: absolute; bottom: 12%; font-size: clamp(44px, 8vw, 88px); filter: drop-shadow(0 14px 18px rgba(0,0,0,.45)); animation: reactionFly 2.2s cubic-bezier(.2,.8,.2,1) forwards; }
+    @keyframes reactionFly {
+      0% { opacity: 0; transform: translateY(40px) scale(.45) rotate(-12deg); }
+      16% { opacity: 1; transform: translateY(0) scale(1.12) rotate(5deg); }
+      70% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-52vh) scale(1.45) rotate(-8deg); }
+    }
+
+    .prompt-card {
+      position: absolute; left: 50%; bottom: 24px; width: min(680px, calc(100% - 40px));
+      transform: translate(-50%, 24px) scale(.96); opacity: 0; pointer-events: none; z-index: 13;
+      padding: 16px 18px 18px; border-radius: 22px; border: 1px solid rgba(255,255,255,.14);
+      background: rgba(9,9,11,.88); backdrop-filter: blur(20px); text-align: center;
+      line-height: 1.35; transition: .25s ease; box-shadow: 0 18px 60px rgba(0,0,0,.35);
+      overflow: hidden;
+    }
+    .prompt-card.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    .prompt-card::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: .95;
+    }
+    .prompt-head { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 7px; }
+    .prompt-pill {
+      display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 10px;
+      font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase;
+      color: #121212; background: linear-gradient(135deg, var(--accent), #fff1a1);
+    }
+    .prompt-text { font-weight: 850; color: #fdf8df; font-size: clamp(14px, 2.3vw, 18px); }
+
+    .invite-card, .device-card {
+      position: absolute; left: 20px; bottom: 20px; max-width: min(520px, calc(100% - 40px));
+      padding: 14px; border: 1px solid rgba(255,255,255,.1); border-radius: 20px;
+      background: rgba(8,8,12,.78); backdrop-filter: blur(18px); z-index: 6; display: none;
+      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,212,0,.04);
+    }
+    .invite-card.show, .device-card.show { display: block; }
+    .device-card { left: auto; right: 20px; top: 20px; bottom: auto; width: min(360px, calc(100% - 40px)); }
+    .card-title { font-size: 12px; color: var(--muted); margin-bottom: 10px; letter-spacing: .04em; text-transform: uppercase; }
+    .invite-row { display: flex; gap: 8px; }
+    .invite-url {
+      min-width: 0; flex: 1; border: 1px solid rgba(255,255,255,.08); border-radius: 12px;
+      padding: 11px 12px; color: #ddddeb; background: rgba(255,255,255,.04);
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+    }
+
+    .device-grid { display: grid; gap: 12px; }
+    .field label { display: block; margin-bottom: 7px; color: #f7eaa1; font-size: 11px; font-weight: 700; }
+    .field select {
+      width: 100%; min-height: 46px; border-radius: 14px; border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.04); color: #f6f3df; padding: 0 12px; font: inherit; outline: none;
+    }
+    .device-actions { display: flex; gap: 8px; }
+
+    footer {
+      position: relative; z-index: 20; display: flex; align-items: center; justify-content: center;
+      gap: 10px; padding: 14px 18px max(16px, env(safe-area-inset-bottom));
+    }
+    button { border: 0; color: white; font: inherit; cursor: pointer; }
+    .control {
+      width: 52px; height: 52px; display: grid; place-items: center; border-radius: 18px;
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(16px); transition: transform .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+      box-shadow: inset 0 0 0 1px rgba(255,212,0,.02);
+    }
+    .control:hover { transform: translateY(-2px); background: rgba(255,255,255,.12); border-color: rgba(255,212,0,.18); }
+    .control:active { transform: scale(.95); }
+    .control.active { background: rgba(255,86,118,.16); border-color: rgba(255,86,118,.45); }
+    .control.warn { background: rgba(255,212,0,.16); border-color: rgba(255,212,0,.25); color: #fff2aa; }
+    .control.danger { background: var(--danger); border-color: transparent; box-shadow: 0 12px 32px rgba(255,78,104,.25); }
+    .control svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .wide { width: auto; padding: 0 18px; gap: 9px; display: inline-flex; }
+
+    .overlay {
+      position: fixed; inset: 0; display: grid; place-items: center; padding: 20px;
+      background: rgba(4,4,7,.82); backdrop-filter: blur(22px); z-index: 100; transition: opacity .25s ease, visibility .25s ease;
+    }
+    .overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .start-card {
+      width: min(100%, 540px); border: 1px solid rgba(255,255,255,.08); border-radius: 30px; padding: 28px;
+      background: linear-gradient(180deg, rgba(21,21,24,.96), rgba(10,10,12,.96)); box-shadow: 0 40px 120px rgba(0,0,0,.58);
+      position: relative; overflow: hidden;
+    }
+    .start-card::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+    .start-card h2 { margin: 0 0 10px; font-size: clamp(28px,7vw,48px); letter-spacing: -.055em; }
+    .start-card p { margin: 0 0 24px; color: var(--muted); line-height: 1.55; }
+    .start-btn {
+      width: 100%; min-height: 58px; border-radius: 17px; background: linear-gradient(135deg, #ffd400, #ffea77 60%, #fff5ba);
+      color: #111; font-weight: 900; box-shadow: 0 18px 50px rgba(255,212,0,.18);
+    }
+    .fineprint { margin-top: 14px; font-size: 11px; color: #777163; line-height: 1.5; text-align: center; }
+    .error-box {
+      display: none; margin-top: 14px; padding: 12px; border-radius: 14px; background: rgba(255,78,104,.12);
+      border: 1px solid rgba(255,78,104,.3); color: #ffc5ce; font-size: 12px; line-height: 1.45;
+    }
+    .error-box.show { display: block; }
+
+    .notice-stack {
+      position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%); z-index: 210;
+      display: grid; gap: 10px; width: min(92vw, 460px); pointer-events: none;
+    }
+    .notice {
+      position: relative; overflow: hidden; border-radius: 16px; padding: 13px 14px 16px;
+      border: 1px solid rgba(255,255,255,.1); background: rgba(10,10,12,.94); color: #f6f4eb;
+      box-shadow: 0 18px 50px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,212,0,.03);
+      opacity: 0; transform: translateY(18px) scale(.98); transition: .2s ease;
+    }
+    .notice.show { opacity: 1; transform: translateY(0) scale(1); }
+    .notice.fade { opacity: 0; transform: translateY(8px) scale(.98); }
+    .notice-title { font-size: 12px; font-weight: 900; color: #b2ad8b; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 4px; }
+    .notice-text { font-size: 13px; line-height: 1.35; font-weight: 700; }
+    .notice-bar {
+      position: absolute; left: 0; bottom: 0; height: 4px; width: 100%;
+      background: linear-gradient(90deg, #65ffa0, #1bff73);
+      transform-origin: left center; animation: shrink var(--dur, 2400ms) linear forwards;
+      box-shadow: 0 0 18px rgba(77,255,141,.8);
+    }
+    @keyframes shrink { to { transform: scaleX(0); opacity: .25; } }
+
+    @media (max-width: 820px) {
+      header { padding-left: 14px; padding-right: 14px; }
+      main { padding: 0; }
+      .stage { border-radius: 0; border-left: 0; border-right: 0; }
+      .local-wrap { width: 44vw; min-width: 140px; max-width: 210px; top: 12px; right: 12px; border-radius: 18px; }
+      .top-chips { left: 12px; top: 12px; max-width: calc(100% - 130px); }
+      footer { gap: 8px; padding-left: 10px; padding-right: 10px; flex-wrap: wrap; }
+      .control { width: 48px; height: 48px; border-radius: 16px; }
+      .wide { width: 48px; padding: 0; }
+      .wide span { display: none; }
+      .invite-card, .device-card { max-width: calc(100% - 24px); }
+      .invite-card { left: 12px; bottom: 12px; }
+      .device-card { right: 12px; top: 12px; }
+      .invite-row { flex-direction: column; }
+      .invite-row .wide { width: 100%; justify-content: center; }
+      .device-actions .wide { width: 100%; justify-content: center; }
+      .start-card { padding: 24px; border-radius: 24px; }
+      .prompt-card { bottom: 14px; width: min(96%, 680px); }
+      .notice-stack { bottom: 74px; }
+    }
+    @media (max-width: 430px) {
+      footer { gap: 4px; padding-left: 6px; padding-right: 6px; }
+      .control { width: 42px; height: 42px; border-radius: 14px; }
+      .wide { width: 42px; }
+      .control svg { width: 19px; height: 19px; }
+      .chip { padding: 8px 10px; font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand"><span class="brand-mark"></span>RANDO</div>
+      <div class="status" id="status" data-state="waiting"><span class="status-dot"></span><span id="statusText">კამერის ჩართვა</span></div>
+    </header>
+
+    <main>
+      <section class="stage" id="stage">
+        <video id="remoteVideo" autoplay playsinline></video>
+
+        <div class="top-chips">
+          <div class="chip"><span class="dot"></span><span>FRIEND ROOM</span></div>
+          <div class="chip"><span class="dot"></span><span>DRAG YOUR CAM</span></div>
+        </div>
+
+        <div class="reaction-layer" id="reactionLayer"></div>
+
+        <div class="prompt-card" id="promptCard">
+          <div class="prompt-head"><span class="prompt-pill" id="promptLabel">Challenge</span></div>
+          <div class="prompt-text" id="promptText"></div>
+        </div>
+
+        <div class="remote-empty" id="remoteEmpty">
+          <div>
+            <div class="orb"></div>
+            <h1 id="emptyTitle">მზად ხარ?</h1>
+            <p id="emptyText">ჩართე კამერა, შექმენი ოთახი და გაუგზავნე მეგობარს მიღებული ლინკი.</p>
+          </div>
+        </div>
+
+        <div class="local-wrap" id="localWrap">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <div class="local-topbar">
+            <div class="drag-tag">DRAG</div>
+          </div>
+          <div class="local-label">შენ</div>
+          <div class="quality-badge" id="qualityBadge">FULL FRAME</div>
+        </div>
+
+        <div class="invite-card" id="inviteCard">
+          <div class="card-title">გაუგზავნე ეს ლინკი მეგობარს</div>
+          <div class="invite-row">
+            <div class="invite-url" id="inviteUrl">ლინკი მზადდება...</div>
+            <button class="control wide" id="copyBtn" aria-label="Copy invite link">
+              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Copy link</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="device-card" id="deviceCard">
+          <div class="card-title">კამერა / მიკროფონი</div>
+          <div class="device-grid">
+            <div class="field">
+              <label for="cameraSelect">კამერა</label>
+              <select id="cameraSelect"><option>იტვირთება...</option></select>
+            </div>
+            <div class="field">
+              <label for="micSelect">მიკროფონი</label>
+              <select id="micSelect"><option>იტვირთება...</option></select>
+            </div>
+            <div class="device-actions">
+              <button class="control wide warn" id="refreshDevicesBtn">
+                <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.3"></path><path d="M20 4v7h-7"></path></svg>
+                <span>განახლება</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <button class="control" id="micBtn" aria-label="Microphone">
+        <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"></path></svg>
+      </button>
+      <button class="control" id="camBtn" aria-label="Camera">
+        <svg viewBox="0 0 24 24"><path d="M15 10l4.6-2.7A1 1 0 0 1 21 8.2v7.6a1 1 0 0 1-1.4.9L15 14"></path><rect x="3" y="6" width="12" height="12" rx="2"></rect></svg>
+      </button>
+      <button class="control wide" id="shareBtn" aria-label="Invite">
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="M8.6 10.6l6.8-4M8.6 13.4l6.8 4"></path></svg>
+        <span>მოწვევა</span>
+      </button>
+      <button class="control" id="flipBtn" aria-label="Flip camera">
+        <svg viewBox="0 0 24 24"><path d="M20 7h-4V3"></path><path d="M20 7a8 8 0 0 0-14.9 3M4 17h4v4"></path><path d="M4 17a8 8 0 0 0 14.9-3"></path></svg>
+      </button>
+      <button class="control" id="devicesBtn" aria-label="Devices" title="კამერა / მიკროფონი">
+        <svg viewBox="0 0 24 24"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 5V3"></path><path d="M20 21v-4"></path><path d="M20 10V3"></path><path d="M1 10h6"></path><path d="M9 5h6"></path><path d="M17 10h6"></path></svg>
+      </button>
+      <button class="control" id="reactionBtn" aria-label="Send reaction" title="რეაქცია">😂</button>
+      <button class="control" id="funBtn" aria-label="Random challenge" title="Random challenge">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"></rect><circle cx="8" cy="8" r="1"></circle><circle cx="16" cy="8" r="1"></circle><circle cx="8" cy="16" r="1"></circle><circle cx="16" cy="16" r="1"></circle></svg>
+      </button>
+      <button class="control danger" id="hangBtn" aria-label="Hang up">
+        <svg viewBox="0 0 24 24"><path d="M4 15.5c4-4 12-4 16 0"></path><path d="M6.5 13.5l-2 4M17.5 13.5l2 4"></path></svg>
+      </button>
+    </footer>
+  </div>
+
+  <div class="overlay" id="startOverlay">
+    <div class="start-card">
+      <div class="brand" style="margin-bottom:22px"><span class="brand-mark"></span>RANDO</div>
+      <h2 id="startTitle">შედი ვიდეო ჩატში</h2>
+      <p id="startDescription">კამერისა და მიკროფონის ნებართვის შემდეგ ოთახი ავტომატურად მზად იქნება.</p>
+      <button class="start-btn" id="startBtn">კამერის ჩართვა</button>
+      <div class="error-box" id="errorBox"></div>
+      <div class="fineprint">18+ სატესტო ვერსია. ვიდეო WebRTC-ით პირდაპირ მონაწილეებს შორის გადაიცემა.</div>
+    </div>
+  </div>
+
+  <div class="notice-stack" id="noticeStack"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    const hostPeerId = params.get('join');
+
+    let peer = null;
+    let localStream = null;
+    let activeCall = null;
+    let dataConn = null;
+    let facingMode = 'user';
+    let micEnabled = true;
+    let camEnabled = true;
+    let inviteLink = '';
+    let currentVideoDeviceId = '';
+    let currentAudioDeviceId = '';
+
+    const reactions = ['😂', '🔥', '💀', '🤡', '❤️', '😳', '👏', '🤝', '👀', '🫠', '😆', '⚡'];
+    const funItems = [
+      { label: 'Challenge', text: '10 წამი სიცილის გარეშე. ვინც პირველი გაიცინებს, აგებს.' },
+      { label: 'Challenge', text: 'აჩვენე ოთახში ყველაზე უცნაური ნივთი.' },
+      { label: 'Challenge', text: 'ორივემ ერთდროულად თქვით პირველი სიტყვა, რაც თავში მოგივათ.' },
+      { label: 'Challenge', text: 'გააკეთე შენი საუკეთესო NPC იმიტაცია.' },
+      { label: 'Challenge', text: 'მეორეს შეურჩიე ახალი მეტსახელი.' },
+      { label: 'Challenge', text: '5 წამში დაასახელე სამი რამ, რასაც დილით ვერ იტან.' },
+      { label: 'Challenge', text: 'აჩვენე კამერაში ყველაზე სასაცილო სახე.' },
+      { label: 'Challenge', text: 'თქვი ერთი რეალური და ერთი მოგონილი ფაქტი შენზე.' },
+      { label: 'Challenge', text: 'ვინ უფრო დიდხანს გაძლებს თვალის დახამხამების გარეშე?' },
+      { label: 'Challenge', text: 'გააკეთე შენი საუკეთესო სპორტული კომენტატორის ხმა.' },
+      { label: 'Challenge', text: '3 წამში გაჩერდი ისე, თითქოს თამაშში დაგაფრიზეს.' },
+      { label: 'Challenge', text: 'დაასახელე ყველაზე cringe რამ, რაც ოდესმე დაგიწერია.' },
+      { label: 'Challenge', text: 'დაწერე ჰაერში შენი სახელი და მეორემ გამოიცნოს.' },
+      { label: 'Challenge', text: 'იმიტაცია გაუკეთე ადამიანს, რომელიც ძალიან ცდილობს cool იყოს.' },
+      { label: 'Challenge', text: 'მხოლოდ მიმიკებით აჩვენე შენი დღევანდელი mood.' },
+      { label: 'Challenge', text: '3 სხვადასხვა სიცილი აჩვენე ზედიზედ.' },
+      { label: 'Challenge', text: '10 წამი მხოლოდ რობოტივით ილაპარაკე.' },
+      { label: 'Challenge', text: 'მეორეს შეუქმე fake superpower 5 წამში.' },
+      { label: 'Question', text: 'რომელი შენი ცუდი ჩვევა გაგეცინება ყველაზე მეტად?' },
+      { label: 'Question', text: 'თუ ერთ დღეში უკვდავი confidence გექნებოდა, რას გააკეთებდი?' },
+      { label: 'Question', text: 'რომელი app წაშლიდი სამუდამოდ?' },
+      { label: 'Question', text: 'ყველაზე random skill რა გაქვს?' },
+      { label: 'Question', text: 'რომელი სიმღერა გაქვს უსირცხვილოდ საყვარელი?' },
+      { label: 'Question', text: 'რას იყიდდი ახლავე, თუ 1000 ლარი გაჩუქებდნენ?' },
+      { label: 'Question', text: 'ყველაზე უცნაური compliment რა მიგიღია?' },
+      { label: 'Question', text: 'თუ teleport შეგეძლო, პირველად სად წახვიდოდი?' },
+      { label: 'Question', text: 'რომელ სერიალს წაიშლიდი მეხსიერებიდან თავიდან საყურებლად?' },
+      { label: 'Question', text: 'თუ nickname-ს ახლა იცვლი, რას დაირქმევ?' },
+      { label: 'Question', text: 'რომელ ასაკში გინდოდა სამუდამოდ გაჩერება?' },
+      { label: 'Question', text: 'რომელი საჭმელი overhyped გგონია?' },
+      { label: 'Question', text: 'რა არის შენი red flag როგორც მეგობარი?' },
+      { label: 'Mini Game', text: 'ორივემ თქვით რიცხვი 1-დან 10-მდე. თუ დაემთხვა, ორივე იგებთ.' },
+      { label: 'Mini Game', text: '3…2…1 — თქვით ფერი. ვინც მეორეს ფერს გამოიცნობს, ქულას იღებს.' },
+      { label: 'Mini Game', text: 'ერთი წუთი: ვინც უფრო მეტ ქართულ ქალაქს დაასახელებს, იგებს.' },
+      { label: 'Mini Game', text: 'მეორეს დაახასიათე მხოლოდ 3 სიტყვით.' },
+      { label: 'Mini Game', text: 'თქვით ერთი და იგივე emoji. გაქვთ მხოლოდ 1 ცდა.' },
+      { label: 'Mini Game', text: 'დაიწყეთ ანბანი — თითო ასოზე თქვით ერთი უცნაური სიტყვა.' },
+      { label: 'Hot Take', text: 'თქვი შენი ყველაზე საკამათო აზრი საჭმელზე.' },
+      { label: 'Hot Take', text: 'რომელი პოპულარული ტრენდი იყო რეალურად ცუდი?' },
+      { label: 'Hot Take', text: 'რომელი ფილმი გგონია უსამართლოდ გადაფასებული?' }
+    ];
+
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:openrelay.metered.ca:80' },
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ];
+
+    function setStatus(text, state = 'waiting') {
+      $('statusText').textContent = text;
+      $('status').dataset.state = state;
+    }
+
+    function showError(message) {
+      $('errorBox').textContent = message;
+      $('errorBox').classList.add('show');
+      setStatus('შეცდომა', 'error');
+    }
+
+    function notify(title, text = '', duration = 2400) {
+      const node = document.createElement('div');
+      node.className = 'notice';
+      node.style.setProperty('--dur', `${duration}ms`);
+      node.innerHTML = `
+        <div class="notice-title">${title}</div>
+        <div class="notice-text">${text || title}</div>
+        <div class="notice-bar"></div>
+      `;
+      $('noticeStack').appendChild(node);
+      requestAnimationFrame(() => node.classList.add('show'));
+      setTimeout(() => node.classList.add('fade'), Math.max(0, duration - 340));
+      setTimeout(() => node.remove(), duration + 140);
+    }
+
+    function videoConstraints(deviceId) {
+      return {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facingMode } }),
+        width: { ideal: 1280, min: 640 },
+        height: { ideal: 720, min: 360 },
+        aspectRatio: { ideal: 16 / 9 },
+        frameRate: { ideal: 30, max: 30 },
+        resizeMode: 'none'
+      };
+    }
+
+    function audioConstraints(deviceId) {
+      return {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      };
+    }
+
+    async function tuneVideoTrack(track) {
+      if (!track) return;
+      track.contentHint = 'motion';
+
+      try {
+        const capabilities = track.getCapabilities?.() || {};
+        if (capabilities.zoom) {
+          const min = Number(capabilities.zoom.min ?? 1);
+          const max = Number(capabilities.zoom.max ?? 1);
+          const targetZoom = min <= 0.5 && max >= 0.5 ? 0.5 : Math.min(Math.max(1, min), max);
+          await track.applyConstraints({ advanced: [{ zoom: targetZoom }] });
+        }
+      } catch (error) {
+        console.info('Zoom control is not available on this camera.', error);
+      }
+
+      const settings = track.getSettings?.() || {};
+      currentVideoDeviceId = settings.deviceId || currentVideoDeviceId;
+      const resolution = settings.width && settings.height ? `${settings.width}×${settings.height}` : 'FULL FRAME';
+      const zoom = settings.zoom ? ` • ${Number(settings.zoom).toFixed(settings.zoom < 1 ? 1 : 0)}x` : '';
+      $('qualityBadge').textContent = `${resolution}${zoom}`;
+    }
+
+    async function openMedia() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('ამ ბრაუზერში კამერის მხარდაჭერა ვერ მოიძებნა. გახსენი Chrome ან Safari HTTPS ლინკით.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: videoConstraints(currentVideoDeviceId || ''),
+        audio: audioConstraints(currentAudioDeviceId || '')
+      });
+
+      await tuneVideoTrack(stream.getVideoTracks()[0]);
+      const audioTrack = stream.getAudioTracks()[0];
+      currentAudioDeviceId = audioTrack?.getSettings?.().deviceId || currentAudioDeviceId;
+      return stream;
+    }
+
+    async function start() {
+      $('startBtn').disabled = true;
+      $('startBtn').textContent = 'ერთდება...';
+      $('errorBox').classList.remove('show');
+
+      try {
+        localStream = await openMedia();
+        $('localVideo').srcObject = localStream;
+        $('startOverlay').classList.add('hidden');
+        setStatus('სერვერთან დაკავშირება', 'waiting');
+        await populateDeviceSelectors();
+        initPeer();
+        initDrag();
+        notify('SYSTEM', 'კამერა და მიკროფონი ჩაირთო', 2200);
+      } catch (error) {
+        console.error(error);
+        showError(error.name === 'NotAllowedError'
+          ? 'კამერის ან მიკროფონის ნებართვა დაბლოკილია. მისამართის ზოლთან კამერის ნიშნიდან Allow აირჩიე და გვერდი განაახლე.'
+          : (error.message || 'კამერა ვერ ჩაირთო.'));
+        $('startBtn').disabled = false;
+        $('startBtn').textContent = 'კიდევ სცადე';
+      }
+    }
+
+    function initPeer() {
+      peer = new Peer(undefined, {
+        debug: 1,
+        config: { iceServers, sdpSemantics: 'unified-plan' }
+      });
+
+      peer.on('open', (id) => {
+        if (hostPeerId) {
+          $('emptyTitle').textContent = 'ვუკავშირდებით...';
+          $('emptyText').textContent = 'მეგობრის კამერა რამდენიმე წამში გამოჩნდება.';
+          setStatus('მეგობართან დაკავშირება', 'waiting');
+          bindDataConnection(peer.connect(hostPeerId, { reliable: true }));
+          placeCall(hostPeerId);
+        } else {
+          inviteLink = `${location.origin}${location.pathname}?join=${encodeURIComponent(id)}`;
+          $('inviteUrl').textContent = inviteLink;
+          $('inviteCard').classList.add('show');
+          $('emptyTitle').textContent = 'ოთახი მზადაა';
+          $('emptyText').textContent = 'დააკოპირე მოწვევის ლინკი და გაუგზავნე მეგობარს.';
+          setStatus('მეგობრის მოლოდინი', 'waiting');
+          notify('ROOM READY', 'მოწვევის ლინკი მზადაა', 2600);
+        }
+      });
+
+      peer.on('connection', (conn) => {
+        if (dataConn?.open) {
+          conn.close();
+          return;
+        }
+        bindDataConnection(conn);
+      });
+
+      peer.on('call', (call) => {
+        if (activeCall) {
+          call.close();
+          return;
+        }
+        activeCall = call;
+        call.answer(localStream);
+        bindCall(call);
+        optimizeOutgoingVideo(call);
+      });
+
+      peer.on('error', (error) => {
+        console.error('Peer error:', error);
+        const messages = {
+          'peer-unavailable': 'ოთახი აღარ არის აქტიური ან ლინკი არასწორია.',
+          'network': 'ქსელთან კავშირი გაწყდა. სცადე გვერდის განახლება.',
+          'server-error': 'სასიგნალო სერვერმა შეცდომა დააბრუნა.',
+          'webrtc': 'ვიდეოკავშირი ვერ შეიქმნა. სცადეთ ორივემ Wi‑Fi ან Chrome.'
+        };
+        showInStage(messages[error.type] || 'დაკავშირება ვერ მოხერხდა. გვერდი განაახლე და თავიდან სცადე.');
+      });
+
+      peer.on('disconnected', () => {
+        if (!peer.destroyed) {
+          setStatus('ხელახლა დაკავშირება', 'waiting');
+          setTimeout(() => {
+            try { peer.reconnect(); } catch (_) {}
+          }, 1000);
+        }
+      });
+    }
+
+    function bindDataConnection(conn) {
+      if (!conn) return;
+      dataConn = conn;
+      conn.on('data', (payload) => {
+        if (!payload || typeof payload !== 'object') return;
+        if (payload.type === 'reaction') showReaction(payload.emoji);
+        if (payload.type === 'prompt') showPrompt(payload.label, payload.text);
+      });
+      conn.on('open', () => notify('LINKED', 'ტექსტური კონტროლი დაკავშირებულია', 1700));
+      conn.on('close', () => {
+        if (dataConn === conn) dataConn = null;
+      });
+      conn.on('error', (error) => console.info('Data connection error:', error));
+    }
+
+    function sendData(payload) {
+      if (dataConn?.open) dataConn.send(payload);
+    }
+
+    function showReaction(emoji) {
+      const node = document.createElement('div');
+      node.className = 'reaction-pop';
+      node.textContent = emoji;
+      node.style.left = `${12 + Math.random() * 70}%`;
+      $('reactionLayer').appendChild(node);
+      setTimeout(() => node.remove(), 2300);
+    }
+
+    function sendReaction() {
+      const emoji = reactions[Math.floor(Math.random() * reactions.length)];
+      showReaction(emoji);
+      sendData({ type: 'reaction', emoji });
+    }
+
+    function showPrompt(label, text) {
+      $('promptLabel').textContent = label || 'Challenge';
+      $('promptText').textContent = text;
+      $('promptCard').classList.add('show');
+      clearTimeout(window.__promptTimer);
+      window.__promptTimer = setTimeout(() => $('promptCard').classList.remove('show'), 6800);
+    }
+
+    function sendRandomPrompt() {
+      const item = funItems[Math.floor(Math.random() * funItems.length)];
+      showPrompt(item.label, item.text);
+      sendData({ type: 'prompt', label: item.label, text: item.text });
+    }
+
+    async function optimizeOutgoingVideo(call) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      try {
+        const sender = call?.peerConnection?.getSenders().find(item => item.track?.kind === 'video');
+        if (!sender) return;
+        const parameters = sender.getParameters();
+        if (!parameters.encodings?.length) parameters.encodings = [{}];
+        parameters.encodings[0].maxBitrate = 2500000;
+        parameters.encodings[0].maxFramerate = 30;
+        parameters.degradationPreference = 'maintain-resolution';
+        await sender.setParameters(parameters);
+      } catch (error) {
+        console.info('Video sender tuning was skipped.', error);
+      }
+    }
+
+    function placeCall(id) {
+      const call = peer.call(id, localStream, { metadata: { version: 3 } });
+      if (!call) {
+        showInStage('ზარი ვერ გაიგზავნა. თავიდან გახსენი მოწვევის ლინკი.');
+        return;
+      }
+      activeCall = call;
+      bindCall(call);
+      optimizeOutgoingVideo(call);
+    }
+
+    function bindCall(call) {
+      call.on('stream', (remoteStream) => {
+        $('remoteVideo').srcObject = remoteStream;
+        $('remoteEmpty').classList.add('hidden');
+        $('inviteCard').classList.remove('show');
+        setStatus('დაკავშირებულია', 'ready');
+        notify('CONNECTED', 'მეგობარი შემოვიდა ოთახში', 2800);
+      });
+
+      call.on('close', () => {
+        activeCall = null;
+        resetRemote('მეგობარი გაითიშა', hostPeerId ? 'გვერდი განაახლე ხელახლა დასაკავშირებლად.' : 'შეგიძლია იგივე მოწვევის ლინკი ისევ გაუგზავნო.');
+      });
+
+      call.on('error', (error) => {
+        console.error('Call error:', error);
+        activeCall = null;
+        resetRemote('ვიდეოკავშირი გაწყდა', 'ორივემ განაახლეთ გვერდი და თავიდან სცადეთ.');
+      });
+    }
+
+    function resetRemote(title, text) {
+      $('remoteVideo').srcObject = null;
+      $('remoteEmpty').classList.remove('hidden');
+      $('emptyTitle').textContent = title;
+      $('emptyText').textContent = text;
+      setStatus('გათიშულია', 'error');
+      if (!hostPeerId && inviteLink) $('inviteCard').classList.add('show');
+    }
+
+    function showInStage(message) {
+      resetRemote('დაკავშირება ვერ მოხერხდა', message);
+      notify('ERROR', message, 3000);
+    }
+
+    function toggleMic() {
+      if (!localStream) return;
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks().forEach(track => track.enabled = micEnabled);
+      $('micBtn').classList.toggle('active', !micEnabled);
+      notify('MIC', micEnabled ? 'მიკროფონი ჩაირთო' : 'მიკროფონი გაითიშა');
+    }
+
+    function toggleCam() {
+      if (!localStream) return;
+      camEnabled = !camEnabled;
+      localStream.getVideoTracks().forEach(track => track.enabled = camEnabled);
+      $('camBtn').classList.toggle('active', !camEnabled);
+      $('localWrap').classList.toggle('off', !camEnabled);
+      notify('CAMERA', camEnabled ? 'კამერა ჩაირთო' : 'კამერა გაითიშა');
+    }
+
+    async function replaceTrack(kind, newTrack) {
+      if (!localStream || !newTrack) return;
+      const oldTrack = localStream.getTracks().find(track => track.kind === kind);
+      const sender = activeCall?.peerConnection?.getSenders().find(s => s.track?.kind === kind);
+      if (sender) {
+        try { await sender.replaceTrack(newTrack); } catch (error) { console.info('replaceTrack failed', error); }
+      }
+      if (oldTrack) {
+        localStream.removeTrack(oldTrack);
+        oldTrack.stop();
+      }
+      localStream.addTrack(newTrack);
+      if (kind === 'video') {
+        newTrack.enabled = camEnabled;
+        await tuneVideoTrack(newTrack);
+        $('localVideo').srcObject = null;
+        $('localVideo').srcObject = localStream;
+        $('localVideo').style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
+      }
+      if (kind === 'audio') {
+        newTrack.enabled = micEnabled;
+      }
+    }
+
+    async function switchVideoDevice(deviceId) {
+      if (!deviceId) return;
+      try {
+        const replacement = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(deviceId), audio: false });
+        const newTrack = replacement.getVideoTracks()[0];
+        currentVideoDeviceId = deviceId;
+        facingMode = 'user';
+        await replaceTrack('video', newTrack);
+        await populateDeviceSelectors();
+        notify('CAMERA', 'კამერა შეიცვალა');
+      } catch (error) {
+        console.error(error);
+        notify('ERROR', 'კამერის შეცვლა ვერ მოხერხდა', 2800);
+      }
+    }
+
+    async function switchAudioDevice(deviceId) {
+      if (!deviceId) return;
+      try {
+        const replacement = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(deviceId), video: false });
+        const newTrack = replacement.getAudioTracks()[0];
+        currentAudioDeviceId = deviceId;
+        await replaceTrack('audio', newTrack);
+        await populateDeviceSelectors();
+        notify('MIC', 'მიკროფონი შეიცვალა');
+      } catch (error) {
+        console.error(error);
+        notify('ERROR', 'მიკროფონის შეცვლა ვერ მოხერხდა', 2800);
+      }
+    }
+
+    async function flipCamera() {
+      if (!localStream) return;
+      facingMode = facingMode === 'user' ? 'environment' : 'user';
+      const previousFacing = facingMode === 'user' ? 'environment' : 'user';
+      try {
+        const replacement = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(''), audio: false });
+        const newTrack = replacement.getVideoTracks()[0];
+        currentVideoDeviceId = newTrack.getSettings?.().deviceId || '';
+        await replaceTrack('video', newTrack);
+        $('cameraSelect').value = currentVideoDeviceId;
+        notify('CAMERA', 'კამერა შეიცვალა');
+      } catch (error) {
+        facingMode = previousFacing;
+        notify('ERROR', 'მეორე კამერა ვერ მოიძებნა', 2400);
+      }
+    }
+
+    async function copyInvite() {
+      if (!inviteLink) return notify('INFO', 'ჯერ ოთახი არ შექმნილა');
+      try {
+        await navigator.clipboard.writeText(inviteLink);
+        notify('COPIED', 'მოწვევის ლინკი დაკოპირდა');
+      } catch (_) {
+        const input = document.createElement('textarea');
+        input.value = inviteLink;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+        notify('COPIED', 'მოწვევის ლინკი დაკოპირდა');
+      }
+    }
+
+    function hangUp() {
+      try { activeCall?.close(); } catch (_) {}
+      try { dataConn?.close(); } catch (_) {}
+      try { peer?.destroy(); } catch (_) {}
+      localStream?.getTracks().forEach(track => track.stop());
+      location.href = location.origin + location.pathname;
+    }
+
+    async function populateDeviceSelectors() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        const mics = devices.filter(device => device.kind === 'audioinput');
+        fillSelect($('cameraSelect'), cameras, currentVideoDeviceId, 'კამერა');
+        fillSelect($('micSelect'), mics, currentAudioDeviceId, 'მიკროფონი');
+      } catch (error) {
+        console.info('enumerateDevices failed', error);
+      }
+    }
+
+    function fillSelect(select, devices, activeId, fallbackName) {
+      select.innerHTML = '';
+      if (!devices.length) {
+        const option = document.createElement('option');
+        option.textContent = `${fallbackName} ვერ მოიძებნა`;
+        option.value = '';
+        select.appendChild(option);
+        return;
+      }
+
+      devices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `${fallbackName} ${index + 1}`;
+        option.selected = device.deviceId === activeId;
+        select.appendChild(option);
+      });
+
+      if (!select.value && devices[0]) select.value = activeId || devices[0].deviceId;
+    }
+
+    function toggleDeviceCard() {
+      $('deviceCard').classList.toggle('show');
+      $('inviteCard').classList.remove('show');
+    }
+
+    function toggleInviteCard() {
+      if (hostPeerId) return notify('INFO', 'მოწვევის ლინკს ოთახის შემქმნელი აგზავნის');
+      $('inviteCard').classList.toggle('show');
+      $('deviceCard').classList.remove('show');
+    }
+
+    function initDrag() {
+      const stage = $('stage');
+      const box = $('localWrap');
+      if (box.dataset.dragReady) return;
+      box.dataset.dragReady = '1';
+
+      let dragging = false;
+      let pointerId = null;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+      const startDrag = (event) => {
+        if (event.target.closest('button, select')) return;
+        const stageRect = stage.getBoundingClientRect();
+        const boxRect = box.getBoundingClientRect();
+        box.style.left = `${boxRect.left - stageRect.left}px`;
+        box.style.top = `${boxRect.top - stageRect.top}px`;
+        box.style.right = 'auto';
+        dragging = true;
+        pointerId = event.pointerId;
+        offsetX = event.clientX - boxRect.left;
+        offsetY = event.clientY - boxRect.top;
+        box.classList.add('dragging');
+        box.setPointerCapture?.(pointerId);
+      };
+
+      const moveDrag = (event) => {
+        if (!dragging) return;
+        const stageRect = stage.getBoundingClientRect();
+        const nextLeft = clamp(event.clientX - stageRect.left - offsetX, 8, stageRect.width - box.offsetWidth - 8);
+        const nextTop = clamp(event.clientY - stageRect.top - offsetY, 8, stageRect.height - box.offsetHeight - 8);
+        box.style.left = `${nextLeft}px`;
+        box.style.top = `${nextTop}px`;
+      };
+
+      const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        pointerId = null;
+        box.classList.remove('dragging');
+      };
+
+      box.addEventListener('pointerdown', startDrag);
+      window.addEventListener('pointermove', moveDrag);
+      window.addEventListener('pointerup', endDrag);
+      window.addEventListener('pointercancel', endDrag);
+    }
+
+    $('startBtn').addEventListener('click', start);
+    $('micBtn').addEventListener('click', toggleMic);
+    $('camBtn').addEventListener('click', toggleCam);
+    $('flipBtn').addEventListener('click', flipCamera);
+    $('devicesBtn').addEventListener('click', toggleDeviceCard);
+    $('reactionBtn').addEventListener('click', sendReaction);
+    $('funBtn').addEventListener('click', sendRandomPrompt);
+    $('copyBtn').addEventListener('click', copyInvite);
+    $('shareBtn').addEventListener('click', toggleInviteCard);
+    $('hangBtn').addEventListener('click', hangUp);
+    $('refreshDevicesBtn').addEventListener('click', async () => {
+      await populateDeviceSelectors();
+      notify('REFRESH', 'მოწყობილობების სია განახლდა');
+    });
+
+    $('cameraSelect').addEventListener('change', (event) => switchVideoDevice(event.target.value));
+    $('micSelect').addEventListener('change', (event) => switchAudioDevice(event.target.value));
+
+    document.addEventListener('click', (event) => {
+      const inDevice = event.target.closest('#deviceCard, #devicesBtn');
+      const inInvite = event.target.closest('#inviteCard, #shareBtn');
+      if (!inDevice) $('deviceCard').classList.remove('show');
+      if (!inInvite && !hostPeerId) $('inviteCard').classList.remove('show');
+    });
+
+    navigator.mediaDevices?.addEventListener?.('devicechange', populateDeviceSelectors);
+
+    if (hostPeerId) {
+      $('startTitle').textContent = 'მეგობარი გელოდება';
+      $('startDescription').textContent = 'ჩართე კამერა და ზარი ავტომატურად დაიწყება.';
+      $('startBtn').textContent = 'შესვლა ოთახში';
+      $('emptyTitle').textContent = 'მოწვევის ოთახი';
+      $('emptyText').textContent = 'კამერის ჩართვის შემდეგ მეგობართან ავტომატურად დაგაკავშირებთ.';
+    }
+
+    window.addEventListener('beforeunload', () => {
+      try { activeCall?.close(); dataConn?.close(); peer?.destroy(); } catch (_) {}
+      localStream?.getTracks().forEach(track => track.stop());
+    });
+  </script>
+</body>
+</html>
