@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { ExpressPeerServer } from '@peerjs/server';
+import { ExpressPeerServer } from 'peer';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
